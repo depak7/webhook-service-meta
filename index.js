@@ -18,6 +18,25 @@ const config = {
 const activeCalls = new Map();
 const callPermissions = new Map(); // Store user permissions
 
+// API endpoint to get SDP answer for a specific call (polling alternative to WebSocket)
+app.get("/api/call-sdp/:call_id", (req, res) => {
+  const { call_id } = req.params;
+  const callData = activeCalls.get(call_id);
+  
+  if (callData && callData.sdp_answer) {
+    res.json({
+      success: true,
+      call_id: call_id,
+      sdp_answer: callData.sdp_answer,
+      status: callData.status
+    });
+  } else {
+    res.status(404).json({
+      error: "Call not found or SDP answer not available yet"
+    });
+  }
+});
+
 // Meta webhook verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -99,8 +118,24 @@ function handleCallConnect(call) {
   // Handle SDP Answer for WebRTC connection
   if (call.session && call.session.sdp) {
     console.log("📡 SDP Answer received for WebRTC connection");
-    // Here you would integrate with your WebRTC stack
-    // Example: processSDPAnswer(call.session.sdp, call.id);
+    
+    // Send SDP answer to frontend via WebSocket or store for polling
+    const webhookEvent = {
+      type: 'call_connect',
+      call_id: call.id,
+      sdp: call.session.sdp,
+      timestamp: new Date().toISOString()
+    };
+    
+    // If WebSocket server is available, broadcast to connected clients
+    broadcastToWebSocketClients(webhookEvent);
+    
+    // Also store the SDP answer for the frontend to retrieve
+    activeCalls.set(call.id, {
+      ...activeCalls.get(call.id),
+      sdp_answer: call.session.sdp,
+      status: "sdp_answer_received"
+    });
   }
 }
 
@@ -113,6 +148,16 @@ function handleCallStatus(status) {
     callSession.lastUpdate = new Date().toISOString();
     activeCalls.set(status.id, callSession);
   }
+
+  // Send status update to frontend
+  const webhookEvent = {
+    type: 'call_status',
+    call_id: status.id,
+    status: status.status,
+    timestamp: new Date().toISOString()
+  };
+  
+  broadcastToWebSocketClients(webhookEvent);
 
   switch (status.status) {
     case "RINGING":
@@ -131,6 +176,17 @@ function handleCallTerminate(call) {
   console.log(`📞❌ Call terminated: ${call.id}`);
   console.log(`Duration: ${call.duration}s, Status: ${call.status}`);
   
+  // Send termination event to frontend
+  const webhookEvent = {
+    type: 'call_terminate',
+    call_id: call.id,
+    duration: call.duration,
+    status: call.status,
+    timestamp: new Date().toISOString()
+  };
+  
+  broadcastToWebSocketClients(webhookEvent);
+  
   // Clean up call session
   activeCalls.delete(call.id);
 }
@@ -144,55 +200,18 @@ app.post("/api/make-call", async (req, res) => {
       return res.status(400).json({ error: "Phone number (to) is required" });
     }
 
+    if (!sdp_offer) {
+      return res.status(400).json({ error: "SDP offer is required for WebRTC connection" });
+    }
+
     // Check if user has granted call permissions
     if (!callPermissions.has(to)) {
       return res.status(403).json({ 
         error: "Call permission not granted by user. Request permission first.",
-        action: "request_permission"
+        action: "request_permission",
+        code: 138006
       });
     }
-
-    // Create SDP offer (simplified example)
-    const defaultSDP = sdp_offer || `v=0
-o=- 4611731400430051336 2 IN IP4 127.0.0.1
-s=-
-t=0 0
-a=group:BUNDLE 0
-a=extmap-allow-mixed
-a=msid-semantic: WMS
-m=audio 9 UDP/TLS/RTP/SAVPF 111 103 104 9 0 8 106 105 13 110 112 113 126
-c=IN IP4 0.0.0.0
-a=rtcp:9 IN IP4 0.0.0.0
-a=ice-ufrag:4ZcD
-a=ice-pwd:2/1muCWoOi3uQClrzz5UaqTuF
-a=ice-options:trickle
-a=fingerprint:sha-256 75:74:5A:A6:A4:E5:52:F4:A7:67:4C:01:C7:EE:91:3F:21:3D:A2:E3:53:7B:6F:30:86:F2:30:FF:A6:22:D9:35
-a=setup:actpass
-a=mid:0
-a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
-a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
-a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
-a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
-a=extmap:5 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
-a=extmap:6 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id
-a=sendrecv
-a=msid:- 
-a=rtcp-mux
-a=rtpmap:111 opus/48000/2
-a=rtcp-fb:111 transport-cc
-a=fmtp:111 minptime=10;useinbandfec=1
-a=rtpmap:103 ISAC/16000
-a=rtpmap:104 ISAC/32000
-a=rtpmap:9 G722/8000
-a=rtpmap:0 PCMU/8000
-a=rtpmap:8 PCMA/8000
-a=rtpmap:106 CN/32000
-a=rtpmap:105 CN/16000
-a=rtpmap:13 CN/8000
-a=rtpmap:110 telephone-event/48000
-a=rtpmap:112 telephone-event/32000
-a=rtpmap:113 telephone-event/16000
-a=rtpmap:126 telephone-event/8000`;
 
     const callData = {
       messaging_product: "whatsapp",
@@ -200,7 +219,7 @@ a=rtpmap:126 telephone-event/8000`;
       action: "connect",
       session: {
         sdp_type: "offer",
-        sdp: defaultSDP
+        sdp: sdp_offer // Use the actual SDP offer from frontend
       }
     };
 
@@ -413,14 +432,63 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
   console.log(`📞 Endpoints available:`);
-  console.log(`   POST /api/make-call - Initiate a call`);
+  console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
   console.log(`   POST /api/terminate-call - Terminate a call`);
   console.log(`   POST /api/request-call-permission - Request call permission`);
   console.log(`   POST /api/grant-call-permission - Grant call permission (testing)`);
   console.log(`   GET  /api/calls - Get active calls`);
+  console.log(`   GET  /api/call-sdp/:call_id - Get SDP answer for call`);
   console.log(`   GET  /api/call-permissions - Get call permissions`);
   console.log(`   GET  /health - Health check`);
 });
+
+// WebSocket clients for real-time updates
+const wsClients = new Set();
+
+// Function to broadcast webhook events to connected WebSocket clients
+function broadcastToWebSocketClients(event) {
+  const message = JSON.stringify(event);
+  wsClients.forEach(client => {
+    if (client.readyState === 1) { // WebSocket.OPEN
+      try {
+        client.send(message);
+      } catch (error) {
+        console.error('Error sending WebSocket message:', error);
+        wsClients.delete(client);
+      }
+    } else {
+      wsClients.delete(client);
+    }
+  });
+}
+
+// Optional: Add WebSocket dependency and server
+try {
+  const WebSocket = require('ws');
+  const wss = new WebSocket.Server({ port: 3001 });
+
+  wss.on('connection', (ws) => {
+    console.log('🔌 WebSocket client connected for real-time updates');
+    wsClients.add(ws);
+    
+    ws.on('close', () => {
+      console.log('🔌 WebSocket client disconnected');
+      wsClients.delete(ws);
+    });
+    
+    // Send initial connection confirmation
+    ws.send(JSON.stringify({
+      type: 'connection',
+      message: 'Connected to WhatsApp calling service',
+      timestamp: new Date().toISOString()
+    }));
+  });
+
+  console.log('🔌 WebSocket server running on port 3001 for real-time updates');
+} catch (error) {
+  console.log('📝 WebSocket not available - clients will use polling instead');
+  // Fallback: clients can poll the /api/call-sdp endpoint
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
