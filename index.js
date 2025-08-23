@@ -487,7 +487,7 @@ try {
   console.log('📝 WebSocket not available - clients will use polling instead');
   // Fallback: clients can poll the /api/call-sdp endpoint
   
-  app.listen(PORT, () => {
+  app.listen(3000, () => {
     console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
     console.log(`📞 Endpoints available:`);
     console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
