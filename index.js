@@ -9,7 +9,8 @@ const corsOptions = {
   origin: [
     'http://localhost:3000',
     'http://localhost:5174', // Vite dev server
-    'http://localhost:5173'
+    'http://localhost:5173',
+    '*'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
