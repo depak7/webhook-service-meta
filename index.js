@@ -9,8 +9,8 @@ const corsOptions = {
   origin: [
     'http://localhost:3000',
     'http://localhost:5174', // Vite dev server
-    'http://localhost:5173',
-    '*'
+    'http://localhost:5173', // Vite dev server alternative
+    '*' // Add your production domain
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -444,44 +444,13 @@ app.get("/health", (req, res) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
-  console.log(`📞 Endpoints available:`);
-  console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
-  console.log(`   POST /api/terminate-call - Terminate a call`);
-  console.log(`   POST /api/request-call-permission - Request call permission`);
-  console.log(`   POST /api/grant-call-permission - Grant call permission (testing)`);
-  console.log(`   GET  /api/calls - Get active calls`);
-  console.log(`   GET  /api/call-sdp/:call_id - Get SDP answer for call`);
-  console.log(`   GET  /api/call-permissions - Get call permissions`);
-  console.log(`   GET  /health - Health check`);
-});
-
-// WebSocket clients for real-time updates
-const wsClients = new Set();
-
-// Function to broadcast webhook events to connected WebSocket clients
-function broadcastToWebSocketClients(event) {
-  const message = JSON.stringify(event);
-  wsClients.forEach(client => {
-    if (client.readyState === 1) { // WebSocket.OPEN
-      try {
-        client.send(message);
-      } catch (error) {
-        console.error('Error sending WebSocket message:', error);
-        wsClients.delete(client);
-      }
-    } else {
-      wsClients.delete(client);
-    }
-  });
-}
-
 // Optional: Add WebSocket dependency and server
 try {
   const WebSocket = require('ws');
-  const wss = new WebSocket.Server({ port: 3001 });
+  
+  // For Render.com deployment, use the same port as HTTP server
+  const server = require('http').createServer(app);
+  const wss = new WebSocket.Server({ server });
 
   wss.on('connection', (ws) => {
     console.log('🔌 WebSocket client connected for real-time updates');
@@ -500,10 +469,36 @@ try {
     }));
   });
 
-  console.log('🔌 WebSocket server running on port 3001 for real-time updates');
+  server.listen(PORT, () => {
+    console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
+    console.log(`🔌 WebSocket server also running on port ${PORT}`);
+    console.log(`📞 Endpoints available:`);
+    console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
+    console.log(`   POST /api/terminate-call - Terminate a call`);
+    console.log(`   POST /api/request-call-permission - Request call permission`);
+    console.log(`   POST /api/grant-call-permission - Grant call permission (testing)`);
+    console.log(`   GET  /api/calls - Get active calls`);
+    console.log(`   GET  /api/call-sdp/:call_id - Get SDP answer for call`);
+    console.log(`   GET  /api/call-permissions - Get call permissions`);
+    console.log(`   GET  /health - Health check`);
+  });
+
 } catch (error) {
   console.log('📝 WebSocket not available - clients will use polling instead');
   // Fallback: clients can poll the /api/call-sdp endpoint
+  
+  app.listen(PORT, () => {
+    console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
+    console.log(`📞 Endpoints available:`);
+    console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
+    console.log(`   POST /api/terminate-call - Terminate a call`);
+    console.log(`   POST /api/request-call-permission - Request call permission`);
+    console.log(`   POST /api/grant-call-permission - Grant call permission (testing)`);
+    console.log(`   GET  /api/calls - Get active calls`);
+    console.log(`   GET  /api/call-sdp/:call_id - Get SDP answer for call`);
+    console.log(`   GET  /api/call-permissions - Get call permissions`);
+    console.log(`   GET  /health - Health check`);
+  });
 }
 
 // Graceful shutdown
