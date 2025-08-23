@@ -488,7 +488,7 @@ try {
   // Fallback: clients can poll the /api/call-sdp endpoint
   
   app.listen(3000, () => {
-    console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
+    console.log(`🚀 WhatsApp Calling API server running on port ${3000}`);
     console.log(`📞 Endpoints available:`);
     console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
     console.log(`   POST /api/terminate-call - Terminate a call`);
