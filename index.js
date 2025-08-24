@@ -23,23 +23,10 @@ app.use(express.json());
 const wsClients = new Set();
 
 
-
-
-// Start WebSocket server
-const wss = new WebSocketServer({ port: 3001 });
+const wss = new WebSocketServer({ port: 8080 });
 wss.on("connection", (ws) => {
   wsClients.add(ws);
-  console.log("🔌 WebSocket client connected");
-
-  ws.on("close", () => {
-    wsClients.delete(ws);
-    console.log("🔌 WebSocket client disconnected");
-  });
-
-  ws.send(JSON.stringify({
-    type: "connection",
-    message: "Connected to WhatsApp calling service"
-  }));
+  ws.on("close", () => wsClients.delete(ws));
 });
 
 
@@ -59,22 +46,10 @@ const callPermissions = new Map(); // Store user permissions
 
 // API endpoint to get SDP answer for a specific call (polling alternative to WebSocket)
 app.get("/api/call-sdp/:call_id", (req, res) => {
-  const { call_id } = req.params;
-  const callData = activeCalls.get(call_id);
-  
-  if (callData && callData.sdp_answer) {
-    res.json({
-      success: true,
-      call_id: call_id,
-      sdp_answer: callData.sdp_answer,
-      status: callData.status
-    });
-  } else {
-    res.status(404).json({
-      error: "Call not found or SDP answer not available yet"
-    });
-  }
-});
+    const call = activeCalls.get(req.params.call_id);
+    if (!call) return res.status(404).json({ error: "Call not found" });
+    res.json({ sdp: call.sdp_answer });
+  });
 
 // Meta webhook verification
 app.get("/webhook", (req, res) => {
@@ -92,117 +67,150 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// Receiving webhook events
-app.post("/webhook", (req, res) => {
-  const body = req.body;
-  console.log("Received webhook event:", JSON.stringify(body, null, 2));
-
-  try {
-    if (body.object === "whatsapp_business_account") {
-      body.entry?.forEach(entry => {
-        entry.changes?.forEach(change => {
-          if (change.field === "calls") {
-            handleCallWebhook(change.value);
+app.post("/webhook", async (req, res) => {
+    const body = req.body;
+    res.sendStatus(200);
+  
+    if (body.object !== "whatsapp_business_account") return;
+  
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        if (change.field === "calls") {
+          const calls = change.value.calls || [];
+          for (const call of calls) {
+            if (call.event === "connect") {
+              const callId = call.id;
+              const from = call.from;
+              const sdpOffer = call.session?.sdp;
+  
+              broadcast({ type: "incoming_call", call_id: callId, from });
+  
+              try {
+                const sdpAnswer = await createSDPAnswerFromServer(sdpOffer);
+  
+                // Pre-accept
+                await axios.post(
+                  `https://graph.facebook.com/v17.0/${config.PHONE_NUMBER_ID}/calls`,
+                  { messaging_product: "whatsapp", call_id: callId, action: "pre_accept", session: { sdp_type: "answer", sdp: sdpAnswer } },
+                  { headers: { Authorization: `Bearer ${config.ACCESS_TOKEN}` } }
+                );
+  
+                // Accept
+                await axios.post(
+                  `https://graph.facebook.com/v17.0/${config.PHONE_NUMBER_ID}/calls`,
+                  { messaging_product: "whatsapp", call_id: callId, action: "accept", session: { sdp_type: "answer", sdp: sdpAnswer } },
+                  { headers: { Authorization: `Bearer ${config.ACCESS_TOKEN}` } }
+                );
+  
+                activeCalls.set(callId, { sdp_answer: sdpAnswer });
+                broadcast({ type: "call_connect", call_id: callId, sdp: sdpAnswer });
+  
+              } catch (err) {
+                console.error("Error processing inbound call:", err);
+              }
+  
+            } else if (call.event === "terminate") {
+              broadcast({ type: "call_terminate", call_id: call.id });
+              activeCalls.delete(call.id);
+            }
           }
-        });
-      });
+        }
+      }
     }
-  } catch (error) {
-    console.error("Error processing webhook:", error);
+  });
+
+function broadcast(message) {
+    const data = JSON.stringify(message);
+    wsClients.forEach(client => client.readyState === client.OPEN && client.send(data));
   }
-
-  // Always respond 200 within 20 seconds
-  res.sendStatus(200);
-});
-
-// Handle different call webhook events
-function handleCallWebhook(callData) {
-  console.log("Processing call webhook:", callData);
-
-  // Handle call events (connect, terminate)
-  if (callData.calls) {
-    callData.calls.forEach(call => {
+async function handleCallWebhook(callData) {
+    if (!callData.calls) return;
+  
+    for (const call of callData.calls) {
       switch (call.event) {
         case "connect":
-          handleCallConnect(call);
+          await handleInboundCall(call);
           break;
+
+
         case "terminate":
           handleCallTerminate(call);
           break;
         default:
-          console.log("Unknown call event:", call.event);
+          console.log("Unknown event:", call.event);
+      }
+    }
+  }
+
+
+  async function createSDPAnswerFromServer(sdpOffer) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  
+        // Add silent audio track
+        const { RTCAudioSource } = require("wrtc");
+        const source = new RTCAudioSource();
+        const track = source.createTrack();
+        pc.addTrack(track);
+  
+        await pc.setRemoteDescription({ type: "offer", sdp: sdpOffer });
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+  
+        setTimeout(() => {
+          resolve(pc.localDescription.sdp);
+          pc.close();
+        }, 100);
+      } catch (err) {
+        reject(err);
       }
     });
   }
-
-  // Handle call status updates (ringing, accepted, rejected)
-  if (callData.statuses) {
-    callData.statuses.forEach(status => {
-      handleCallStatus(status);
-    });
-  }
-}
-
-function broadcastToWebSocketClients(message) {
-  const data = JSON.stringify(message);
-  wsClients.forEach((client) => {
-    if (client.readyState === client.OPEN) {
-      client.send(data);
-    }
-  });
-}
-
-async function handleInboundCall(call) {
-    console.log(`📞 Incoming call: ${call.id} from ${call.from}`);
   
-    // Store call in memory
-    activeCalls.set(call.id, {
-      ...call,
-      status: "incoming",
-      startTime: new Date().toISOString()
-    });
+  // Pre-accept + accept inbound call
+  async function handleInboundCall(call) {
+    console.log(`📞 Incoming call from ${call.from} (ID: ${call.id})`);
   
-    // Optionally: Notify frontend via WebSocket
+    activeCalls.set(call.id, { ...call, status: "incoming" });
+  
     broadcastToWebSocketClients({
       type: "incoming_call",
       call_id: call.id,
-      from: call.from
+      from: call.from,
     });
   
-    // Create SDP answer for WebRTC
     try {
       const sdpAnswer = await createSDPAnswerFromServer(call.session.sdp);
-      
-      // Send SDP answer back to WhatsApp
+  
+      // Pre-accept
       await axios.post(
-        `${config.BASE_URL}/${config.API_VERSION}/${config.PHONE_NUMBER_ID}/calls`,
+        `https://graph.facebook.com/${CONFIG.API_VERSION}/${CONFIG.PHONE_NUMBER_ID}/calls`,
         {
           messaging_product: "whatsapp",
           call_id: call.id,
-          action: "accept", // Accept the inbound call
-          session: {
-            sdp_type: "answer",
-            sdp: sdpAnswer
-          }
+          action: "pre_accept",
+          session: { sdp_type: "answer", sdp: sdpAnswer },
         },
-        {
-          headers: {
-            Authorization: `Bearer ${config.ACCESS_TOKEN}`,
-            "Content-Type": "application/json"
-          }
-        }
+        { headers: { Authorization: `Bearer ${CONFIG.ACCESS_TOKEN}` } }
       );
   
-      // Update call info
-      const updatedCall = activeCalls.get(call.id);
-      activeCalls.set(call.id, {
-        ...updatedCall,
-        status: "accepted",
-        sdp_answer: sdpAnswer
-      });
+      // Accept the call
+      await axios.post(
+        `https://graph.facebook.com/${CONFIG.API_VERSION}/${CONFIG.PHONE_NUMBER_ID}/calls`,
+        {
+          messaging_product: "whatsapp",
+          call_id: call.id,
+          action: "accept",
+          session: { sdp_type: "answer", sdp: sdpAnswer },
+        },
+        { headers: { Authorization: `Bearer ${CONFIG.ACCESS_TOKEN}` } }
+      );
   
+      activeCalls.set(call.id, { ...activeCalls.get(call.id), status: "accepted" });
+      console.log(`✅ Call accepted: ${call.id}`);
     } catch (err) {
-      console.error("Error answering inbound call:", err);
+      console.error("Error handling inbound call:", err.response?.data || err.message);
     }
   }
 
@@ -273,25 +281,22 @@ function handleCallStatus(status) {
       break;
   }
 }
-
-function handleCallTerminate(call) {
-  console.log(`📞❌ Call terminated: ${call.id}`);
-  console.log(`Duration: ${call.duration}s, Status: ${call.status}`);
-  
-  // Send termination event to frontend
-  const webhookEvent = {
-    type: 'call_terminate',
-    call_id: call.id,
-    duration: call.duration,
-    status: call.status,
-    timestamp: new Date().toISOString()
-  };
-  
-  broadcastToWebSocketClients(webhookEvent);
-  
-  // Clean up call session
-  activeCalls.delete(call.id);
-}
+app.post("/api/terminate-call", async (req, res) => {
+    const { call_id } = req.body;
+    if (!call_id) return res.status(400).json({ error: "Missing call_id" });
+    try {
+      await axios.post(
+        `https://graph.facebook.com/v17.0/${config.PHONE_NUMBER_ID}/calls`,
+        { messaging_product: "whatsapp", call_id, action: "terminate" },
+        { headers: { Authorization: `Bearer ${config.ACCESS_TOKEN}` } }
+      );
+      activeCalls.delete(call_id);
+      broadcast({ type: "call_terminate", call_id });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
 // API endpoint to initiate a call
 app.post("/api/make-call", async (req, res) => {
