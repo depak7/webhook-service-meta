@@ -2,6 +2,7 @@ import express from "express";
 import axios from "axios";
 import cors from "cors";
 import { WebSocketServer } from "ws";
+import { RTCPeerConnection, RTCAudioSource } from "wrtc";
 
 const app = express();
 
@@ -123,33 +124,15 @@ function broadcast(message) {
     const data = JSON.stringify(message);
     wsClients.forEach(client => client.readyState === client.OPEN && client.send(data));
   }
-async function handleCallWebhook(callData) {
-    if (!callData.calls) return;
-  
-    for (const call of callData.calls) {
-      switch (call.event) {
-        case "connect":
-          await handleInboundCall(call);
-          break;
-
-
-        case "terminate":
-          handleCallTerminate(call);
-          break;
-        default:
-          console.log("Unknown event:", call.event);
-      }
-    }
-  }
-
 
   async function createSDPAnswerFromServer(sdpOffer) {
     return new Promise(async (resolve, reject) => {
       try {
-        const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        });
   
         // Add silent audio track
-        const { RTCAudioSource } = require("wrtc");
         const source = new RTCAudioSource();
         const track = source.createTrack();
         pc.addTrack(track);
