@@ -142,5 +142,34 @@ app.post("/api/terminate-call", async (req, res) => {
   }
 });
 
+app.post("/api/make-call", async (req, res) => {
+    const { to, sdp_offer, tracking_data } = req.body;
+    if (!to || !sdp_offer) return res.status(400).json({ error: "Phone number and SDP offer required" });
+  
+    try {
+      const callData = {
+        messaging_product: "whatsapp",
+        to,
+        action: "connect",
+        session: { sdp_type: "offer", sdp: sdp_offer }
+      };
+      if (tracking_data) callData.biz_opaque_callback_data = tracking_data;
+  
+      const response = await axios.post(
+        `${config.BASE_URL}/${config.API_VERSION}/${config.PHONE_NUMBER_ID}/calls`,
+        callData,
+        { headers: { Authorization: `Bearer ${config.ACCESS_TOKEN}` } }
+      );
+  
+      const callId = response.data.calls[0]?.id;
+      if (callId) activeCalls.set(callId, { sdp_offer, status: "initiated", direction: "BUSINESS_INITIATED" });
+  
+      res.json({ success: true, call_id: callId });
+    } catch (err) {
+      console.error(err.response?.data || err.message);
+      res.status(500).json({ error: "Failed to initiate call", details: err.message });
+    }
+  });
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
