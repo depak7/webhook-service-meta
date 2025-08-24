@@ -9,20 +9,22 @@ const app = express();
 app.use(cors({ origin: "*", methods: ["GET","POST","PUT","DELETE","OPTIONS"], allowedHeaders: ["Content-Type","Authorization"], credentials: true }));
 app.use(express.json());
 
-// WebSocket clients
+const server = http.createServer(app); // create an HTTP server for Express
+
+const wss = new WebSocketServer({ server }); // attach WS to same server
+
 const wsClients = new Set();
-const wss = new WebSocketServer({ port: 8080 });
+
 wss.on("connection", (ws) => {
   wsClients.add(ws);
   ws.on("close", () => wsClients.delete(ws));
 });
 
-// Helper: broadcast to all clients
+
 function broadcast(message) {
   const data = JSON.stringify(message);
-  wsClients.forEach(client => client.readyState === client.OPEN && client.send(data));
+  wsClients.forEach((client) => client.readyState === client.OPEN && client.send(data));
 }
-
 // Config
 const config = {
   VERIFY_TOKEN: "kapturewaba",
@@ -51,7 +53,7 @@ app.get("/webhook", (req, res) => {
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
-  console.log(body)
+  console.log(JSON.stringify(body))
   if (body.object !== "whatsapp_business_account") return;
 
   for (const entry of body.entry || []) {
