@@ -70,7 +70,7 @@ app.get("/webhook", (req, res) => {
 app.post("/webhook", async (req, res) => {
     const body = req.body;
     res.sendStatus(200);
-  
+   console.log(body)
     if (body.object !== "whatsapp_business_account") return;
   
     for (const entry of body.entry || []) {
