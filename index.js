@@ -143,6 +143,15 @@ function handleCallWebhook(callData) {
   }
 }
 
+function broadcastToWebSocketClients(message) {
+  const data = JSON.stringify(message);
+  wsClients.forEach((client) => {
+    if (client.readyState === client.OPEN) {
+      client.send(data);
+    }
+  });
+}
+
 async function handleInboundCall(call) {
     console.log(`📞 Incoming call: ${call.id} from ${call.from}`);
   
@@ -429,25 +438,25 @@ app.post("/api/request-call-permission", async (req, res) => {
       "Hi! We'd like to be able to call you on WhatsApp for better support. Would you like to allow calls from our business?";
 
     // Send a message requesting call permission
-    const messageData = {
-      messaging_product: "whatsapp",
-      to: to,
-      type: "text",
-      text: { body: permissionMessage }
-    };
+    // const messageData = {
+    //   messaging_product: "whatsapp",
+    //   to: to,
+    //   type: "text",
+    //   text: { body: permissionMessage }
+    // };
 
-    const response = await axios.post(
-      `${config.BASE_URL}/${config.API_VERSION}/${config.PHONE_NUMBER_ID}/messages`,
-      messageData,
-      {
-        headers: {
-          'Authorization': `Bearer ${config.ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    // const response = await axios.post(
+    //   `${config.BASE_URL}/${config.API_VERSION}/${config.PHONE_NUMBER_ID}/messages`,
+    //   messageData,
+    //   {
+    //     headers: {
+    //       'Authorization': `Bearer ${config.ACCESS_TOKEN}`,
+    //       'Content-Type': 'application/json'
+    //     }
+    //   }
+    // );
 
-    console.log("📨 Call permission request sent:", response.data);
+    // console.log("📨 Call permission request sent:", response.data);
 
     res.json({
       success: true,
@@ -523,32 +532,45 @@ app.get("/health", (req, res) => {
 
 // Optional: Add WebSocket dependency and server
 try {
-  const WebSocket = require('ws');
+//   const WebSocket = require('ws');
   
-  // For Render.com deployment, use the same port as HTTP server
-  const server = require('http').createServer(app);
-  const wss = new WebSocket.Server({ server });
+//   // For Render.com deployment, use the same port as HTTP server
+//   const server = require('http').createServer(app);
+//   const wss = new WebSocket.Server({ server });
 
-  wss.on('connection', (ws) => {
-    console.log('🔌 WebSocket client connected for real-time updates');
-    wsClients.add(ws);
+//   wss.on('connection', (ws) => {
+//     console.log('🔌 WebSocket client connected for real-time updates');
+//     wsClients.add(ws);
     
-    ws.on('close', () => {
-      console.log('🔌 WebSocket client disconnected');
-      wsClients.delete(ws);
-    });
+//     ws.on('close', () => {
+//       console.log('🔌 WebSocket client disconnected');
+//       wsClients.delete(ws);
+//     });
     
-    // Send initial connection confirmation
-    ws.send(JSON.stringify({
-      type: 'connection',
-      message: 'Connected to WhatsApp calling service',
-      timestamp: new Date().toISOString()
-    }));
-  });
+//     // Send initial connection confirmation
+//     ws.send(JSON.stringify({
+//       type: 'connection',
+//       message: 'Connected to WhatsApp calling service',
+//       timestamp: new Date().toISOString()
+//     }));
+//   });
 
-  server.listen(PORT, () => {
-    console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
-    console.log(`🔌 WebSocket server also running on port ${PORT}`);
+//   server.listen(PORT, () => {
+//     console.log(`🚀 WhatsApp Calling API server running on port ${PORT}`);
+//     console.log(`🔌 WebSocket server also running on port ${PORT}`);
+//     console.log(`📞 Endpoints available:`);
+//     console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
+//     console.log(`   POST /api/terminate-call - Terminate a call`);
+//     console.log(`   POST /api/request-call-permission - Request call permission`);
+//     console.log(`   POST /api/grant-call-permission - Grant call permission (testing)`);
+//     console.log(`   GET  /api/calls - Get active calls`);
+//     console.log(`   GET  /api/call-sdp/:call_id - Get SDP answer for call`);
+//     console.log(`   GET  /api/call-permissions - Get call permissions`);
+//     console.log(`   GET  /health - Health check`);
+//   });
+
+app.listen(3000, () => {
+    console.log(`🚀 WhatsApp Calling API server running on port ${3000}`);
     console.log(`📞 Endpoints available:`);
     console.log(`   POST /api/make-call - Initiate a call (now accepts sdp_offer)`);
     console.log(`   POST /api/terminate-call - Terminate a call`);
