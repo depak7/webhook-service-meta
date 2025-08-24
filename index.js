@@ -1,6 +1,7 @@
 import express from "express";
 import axios from "axios";
 import cors from "cors";
+import { WebSocketServer } from "ws";
 
 const app = express();
 
@@ -19,6 +20,28 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+const wsClients = new Set();
+
+
+
+
+// Start WebSocket server
+const wss = new WebSocketServer({ port: 3001 });
+wss.on("connection", (ws) => {
+  wsClients.add(ws);
+  console.log("🔌 WebSocket client connected");
+
+  ws.on("close", () => {
+    wsClients.delete(ws);
+    console.log("🔌 WebSocket client disconnected");
+  });
+
+  ws.send(JSON.stringify({
+    type: "connection",
+    message: "Connected to WhatsApp calling service"
+  }));
+});
+
 
 // Configuration - Replace with your actual values
 const config = {
@@ -119,6 +142,60 @@ function handleCallWebhook(callData) {
     });
   }
 }
+
+async function handleInboundCall(call) {
+    console.log(`📞 Incoming call: ${call.id} from ${call.from}`);
+  
+    // Store call in memory
+    activeCalls.set(call.id, {
+      ...call,
+      status: "incoming",
+      startTime: new Date().toISOString()
+    });
+  
+    // Optionally: Notify frontend via WebSocket
+    broadcastToWebSocketClients({
+      type: "incoming_call",
+      call_id: call.id,
+      from: call.from
+    });
+  
+    // Create SDP answer for WebRTC
+    try {
+      const sdpAnswer = await createSDPAnswerFromServer(call.session.sdp);
+      
+      // Send SDP answer back to WhatsApp
+      await axios.post(
+        `${config.BASE_URL}/${config.API_VERSION}/${config.PHONE_NUMBER_ID}/calls`,
+        {
+          messaging_product: "whatsapp",
+          call_id: call.id,
+          action: "accept", // Accept the inbound call
+          session: {
+            sdp_type: "answer",
+            sdp: sdpAnswer
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${config.ACCESS_TOKEN}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+  
+      // Update call info
+      const updatedCall = activeCalls.get(call.id);
+      activeCalls.set(call.id, {
+        ...updatedCall,
+        status: "accepted",
+        sdp_answer: sdpAnswer
+      });
+  
+    } catch (err) {
+      console.error("Error answering inbound call:", err);
+    }
+  }
 
 function handleCallConnect(call) {
   console.log(`📞 Call connecting: ${call.id}`);
