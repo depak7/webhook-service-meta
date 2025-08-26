@@ -203,23 +203,23 @@ app.post("/api/upload-recording", upload.single("recording"), (req, res) => {
 });
 
 app.get("/auth/tiktok", (req, res) => {
-  const state = Math.random().toString(36).substring(2);
-  req.session.tiktok_oauth_state = state;
+  const csrfState = Math.random().toString(36).substring(2);
+  res.cookie('csrfState', csrfState, { maxAge: 60000 }); 
 
   const authUrl =
-    "https://open-api.tiktok.com/platform/oauth/connect/?" +
+    "https://www.tiktok.com/auth/authorize/?" +
     querystring.stringify({
       client_key: CLIENT_KEY,
       response_type: "code",
       scope: "user.info.basic",
       redirect_uri: REDIRECT_URI,
-      state,
+      state:csrfState,
     });
 
   res.redirect(authUrl);
 });
 
-
+    
 app.get("/auth/tiktok/callback", async (req, res) => {
   const { code, state } = req.query;
 
