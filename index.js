@@ -3,10 +3,26 @@ import axios from "axios";
 import cors from "cors";
 import { WebSocketServer } from "ws";
 import http from "http";
+import multer from "multer";
+import session from "express-session";
 
 const app = express();
 app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
+app.use(
+  session({
+    secret: "super-secret-key",
+    resave: false,
+    saveUninitialized: true,
+  })
+);
+
+
+const CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
+const CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
+const REDIRECT_URI = "http://localhost:3000/auth/tiktok/callback"; // must match TikTok app settings
+
+
 
 // HTTP + WS server
 const server = http.createServer(app);
@@ -170,6 +186,74 @@ app.post("/api/make-call", async (req, res) => {
       res.status(500).json({ error: "Failed to initiate call", details: err.message });
     }
   });
+
+
+  const upload = multer({ dest: "uploads/" });
+
+app.post("/api/upload-recording", upload.single("recording"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: "No recording uploaded" });
+  }
+
+  console.log("File saved:", req.file.path);
+  console.log("Extra fields:", req.body); // call_id, duration, timestamp
+
+  res.json({ success: true, file: req.file.filename });
+});
+
+app.get("/auth/tiktok", (req, res) => {
+  const state = Math.random().toString(36).substring(2);
+  req.session.tiktok_oauth_state = state;
+
+  const authUrl =
+    "https://open-api.tiktok.com/platform/oauth/connect/?" +
+    querystring.stringify({
+      client_key: CLIENT_KEY,
+      response_type: "code",
+      scope: "user.info.basic",
+      redirect_uri: REDIRECT_URI,
+      state,
+    });
+
+  res.redirect(authUrl);
+});
+
+
+app.get("/auth/tiktok/callback", async (req, res) => {
+  const { code, state } = req.query;
+
+  if (state !== req.session.tiktok_oauth_state) {
+    return res.status(403).send("Invalid state");
+  }
+
+  try {
+    const response = await axios.post(
+      "https://open.tiktokapis.com/v2/oauth/token/",
+      querystring.stringify({
+        client_key: CLIENT_KEY,
+        client_secret: CLIENT_SECRET,
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: REDIRECT_URI,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+
+    const data = response.data;
+    console.log(data)
+    // data includes access_token, refresh_token, open_id, etc.
+    res.json(data);
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).send("Error exchanging code for tokens");
+  }
+});
+
+  
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
