@@ -207,7 +207,7 @@ app.get("/auth/tiktok", (req, res) => {
   res.cookie('csrfState', csrfState, { maxAge: 60000 }); 
 
   const authUrl =
-    "https://www.tiktok.com/auth/authorize/?" +
+    "https://www.tiktok.com/v2/auth/authorize/?" +
     querystring.stringify({
       client_key: CLIENT_KEY,
       response_type: "code",
