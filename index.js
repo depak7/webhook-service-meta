@@ -242,11 +242,11 @@ app.get("/auth/tiktok/callback", async (req, res) => {
     );
 
     const data = response.data;
-    console.log(data)
+    console.log("callback" + data)
     // data includes access_token, refresh_token, open_id, etc.
     res.json(data);
   } catch (err) {
-    console.error(err.response?.data || err.message);
+    console.error("Error in callback" ,err.response?.data || err.message);
     res.status(500).send("Error exchanging code for tokens");
   }
 });
