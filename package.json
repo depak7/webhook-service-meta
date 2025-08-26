@@ -20,6 +20,7 @@
     "multer": "^2.0.2",
     "node-webrtc": "^0.0.0",
     "path": "^0.12.7",
+    "query-string": "^9.2.2",
     "ws": "^8.18.3"
   },
   "devDependencies": {

@@ -5,6 +5,7 @@ import { WebSocketServer } from "ws";
 import http from "http";
 import multer from "multer";
 import session from "express-session";
+import querystring from "querystring";
 
 const app = express();
 app.use(cors({ origin: "*", credentials: true }));
@@ -20,7 +21,7 @@ app.use(
 
 const CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
 const CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
-const REDIRECT_URI = "http://localhost:3000/auth/tiktok/callback"; // must match TikTok app settings
+const REDIRECT_URI = "https://webhook-service-meta.onrender.com/auth/tiktok/callback"; // must match TikTok app settings
 
 
 
