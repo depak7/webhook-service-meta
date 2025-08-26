@@ -223,10 +223,7 @@ app.get("/auth/tiktok", (req, res) => {
 app.get("/auth/tiktok/callback", async (req, res) => {
   const { code, state } = req.query;
 
-  if (state !== req.session.tiktok_oauth_state) {
-    return res.status(403).send("Invalid state");
-  }
-
+ console.log(state)
   try {
     const response = await axios.post(
       "https://open.tiktokapis.com/v2/oauth/token/",
