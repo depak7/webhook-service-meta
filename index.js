@@ -63,6 +63,17 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const body = req.body;
 
+  console.log(body)
+
+  try {
+    await axios.post("https://10db7755ee24.ngrok-free.app/waba/webhook", body, {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("Error forwarding to Spring:", error.message);
+  }
+
+
   if (body.object !== "whatsapp_business_account") return;
 
   for (const entry of body.entry || []) {
@@ -201,57 +212,6 @@ app.post("/api/upload-recording", upload.single("recording"), (req, res) => {
 
   res.json({ success: true, file: req.file.filename });
 });
-
-app.get("/auth/tiktok", (req, res) => {
-  const csrfState = Math.random().toString(36).substring(2);
-  res.cookie('csrfState', csrfState, { maxAge: 60000 }); 
-
-  const authUrl =
-    "https://www.tiktok.com/v2/auth/authorize/?" +
-    querystring.stringify({
-      client_key: CLIENT_KEY,
-      response_type: "code",
-      scope: "user.info.basic",
-      redirect_uri: REDIRECT_URI,
-      state:csrfState,
-    });
-
-  res.redirect(authUrl);
-});
-
-    
-app.get("/auth/tiktok/callback", async (req, res) => {
-  const { code, state } = req.query;
-
- console.log(state)
-  try {
-    const response = await axios.post(
-      "https://open.tiktokapis.com/v2/oauth/token/",
-      querystring.stringify({
-        client_key: CLIENT_KEY,
-        client_secret: CLIENT_SECRET,
-        code,
-        grant_type: "authorization_code",
-        redirect_uri: REDIRECT_URI,
-      }),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      }
-    );
-
-    const data = response.data;
-    console.log("callback" + data)
-    // data includes access_token, refresh_token, open_id, etc.
-    res.json(data);
-  } catch (err) {
-    console.error("Error in callback" ,err.response?.data || err.message);
-    res.status(500).send("Error exchanging code for tokens");
-  }
-});
-
-  
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
